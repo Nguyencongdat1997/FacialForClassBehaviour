@@ -1,2 +1,2 @@
-# FacialExpression
-a combination of tested emotion models
+# Facial Model for Class Behaviour prediction
+
