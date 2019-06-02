@@ -120,3 +120,38 @@ class EmotionDetector:
         
         return bounding_boxes, scores, predicteds
 
+    def detect_emotion_from_faceboxes(self, faceboxes):     
+        '''
+            
+        '''        
+        scores = []
+        predicteds = []
+        for facebox in faceboxes:      
+            gray = self.rgb2gray(face_img)
+            gray = resize(gray, (48,48), mode='symmetric').astype(np.uint8)
+
+            img = gray[:, :, np.newaxis]
+            img = np.concatenate((img, img, img), axis=2)
+            img = Image.fromarray(img)
+            inputs = self.transform_test(img)             
+
+            ncrops, c, h, w = np.shape(inputs)
+            inputs = inputs.view(-1, c, h, w)
+            if self.use_cuda:
+                inputs = inputs.cuda()
+            inputs = Variable(inputs, volatile=True)
+            outputs = self.net(inputs)
+
+            outputs_avg = outputs.view(ncrops, -1).mean(0)  # avg over crops
+
+            score = F.softmax(outputs_avg)
+            _, predicted = torch.max(outputs_avg.data, 0)
+            
+            scores.append(score)
+            #predicteds.append(predicted)            
+            if torch.max(score) > self.reliability:
+                predicteds.append(self.class_names[int(predicted.cpu().numpy())])
+            else:
+                predicteds.append('UNK')
+        
+        return scores, predicteds

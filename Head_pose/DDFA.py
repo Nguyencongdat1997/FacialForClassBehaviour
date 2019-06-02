@@ -158,4 +158,48 @@ class DDFA_rf():
         img_ori = cv2.imread(img_fp)             
         return self.draw_pose(img_ori)       
 
+    def detect_pose_from_faceboxes(self, img_ori, bounding_boxes): 
+        pts_res = []
+        Ps = []  # Camera matrix collection
+        poses = []  # pose collection, [todo: validate it]
+        for rect in  bounding_boxes:            
+            # - use detected face bbox
+            bbox = [rect[0], rect[1], rect[2], rect[3]]
+            roi_box = parse_roi_box_from_bbox(bbox)
 
+            img = crop_img(img_ori, roi_box)
+
+            # forward: one step
+            img = cv2.resize(img, dsize=(self.STD_SIZE, self.STD_SIZE), interpolation=cv2.INTER_LINEAR)
+            input = self.transform(img).unsqueeze(0)
+            with torch.no_grad():
+                if self.mode == 'gpu':
+                    input = input.cuda()
+                param = self.model(input)
+                param = param.squeeze().cpu().numpy().flatten().astype(np.float32)
+
+            # 68 pts
+            pts68 = predict_68pts(param, roi_box)
+
+            # two-step for more accurate bbox to crop face
+            if self.bbox_init == 'two':
+                roi_box = parse_roi_box_from_landmark(pts68)
+                img_step2 = crop_img(img_ori, roi_box)
+                img_step2 = cv2.resize(img_step2, dsize=(self.STD_SIZE, self.STD_SIZE), interpolation=cv2.INTER_LINEAR)
+                input = self.transform(img_step2).unsqueeze(0)
+                with torch.no_grad():
+                    if self.mode == 'gpu':
+                        input = input.cuda()
+                    param = self.model(input)
+                    param = param.squeeze().cpu().numpy().flatten().astype(np.float32)
+
+                pts68 = predict_68pts(param, roi_box)
+            
+            pts_res.append(pts68)
+            P, pose = parse_pose(param)
+            Ps.append(P)
+            poses.append(pose)
+            #P, pose = parse_pose(param) # Camera matrix (without scale), and pose (yaw, pitch, roll, to verify)
+        
+        rotation_vectors, translation_vectors = self.affine_camera_matrixes_to_vectors(Ps)
+        return rotation_vectors
